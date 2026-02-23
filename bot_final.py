@@ -12,31 +12,25 @@ from telegram.ext import Application, CommandHandler
 from flask import Flask
 from threading import Thread
 
-# --- 1. إعداد السيرفر الوهمي للبقاء حياً على Render ---
+# --- إعداد السيرفر للبقاء حياً على Render ---
 app_flask = Flask('')
 @app_flask.route('/')
-def home(): 
-    return "Scalper Al Thahab is Online!"
+def home(): return "Shatha Trading Bot is Online!"
 
-def run_flask():
-    app_flask.run(host='0.0.0.0', port=8080)
+def run_flask(): app_flask.run(host='0.0.0.0', port=8080)
+def keep_alive(): Thread(target=run_flask).start()
 
-def keep_alive():
-    t = Thread(target=run_flask)
-    t.start()
-
-# --- 2. إعدادات البوت ---
+# --- إعدادات البوت واللوجر ---
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# تأكدي من وضع هذي القيم في "Environment Variables" في Render
-TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN", "7405230919:AAHm_oVn_Yf0vP1XyOasv6WfGg8xS1I9s40") # مثال
-CHAT_ID = os.environ.get("CHAT_ID", "6071987588") # مثال
+TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
+CHAT_ID = os.environ.get("CHAT_ID")
 RIYADH_TZ = pytz.timezone('Asia/Riyadh')
 
-# --- 3. إعدادات الحساب ورموز التداول ---
+# --- إعدادات الحساب (كما هي في ملفك) ---
 ACCOUNT = {
-    "balance": 100000.0, 
+    "balance": 100000.0,
     "max_drawdown": 10.0,
     "daily_drawdown": 5.0,
     "drawdown_used": 0.0,
@@ -47,19 +41,23 @@ ACCOUNT = {
 
 SYMBOLS = {
     "XAUUSD": "GC=F",
-    "BTCUSD": "BTC-USD",
+    "XAGUSD": "SI=F",
     "EURUSD": "EURUSD=X",
-    "GBPUSD": "GBPUSD=X"
+    "GBPUSD": "GBPUSD=X",
+    "BTCUSD": "BTC-USD",
+    "USDCHF": "USDCHF=X",
+    "USDJPY": "USDJPY=X",
+    "AUDUSD": "AUDUSD=X"
 }
 
-HIGH_IMPACT_KEYWORDS = ["Fed", "FOMC", "CPI", "NFP", "GDP", "Powell"]
+HIGH_IMPACT_KEYWORDS = ["Fed", "Federal Reserve", "CPI", "NFP", "Non-Farm", "FOMC", "Interest Rate", "GDP", "Powell", "ECB", "BOE", "BOJ"]
 
-# --- 4. قوائم الرسائل ---
-WAITING_MSGS = ["جالس أفحص الأسواق لك.. لحظة صبر يا بطلة ⏳", "عيني على الشارت، لحظة وأخبرك 📈"]
-NO_SETUP_MSGS = ["ما لقيت سيتاب يستاهل الحين. روحي اتقهوي وأنا أراقب ☕", "السوق هادي، ما في فرصة بشروطنا."]
-DAILY_TIPS = ["الخطة هي الملك 👑", "الصبر مفتاح الربح في الذهب 🟡"]
+# --- رسائل باللهجة السعودية (نفس نصوصك تماماً) ---
+WAITING_MSGS = ["جالس أفحص الأسواق لك.. لحظة صبر يا بطلة", "عيني على الشارت، لحظة وأخبرك ..", "البحث مستمر، السوق مو دايم يعطي فرص، بس أنا صاحي", "فاحص كل زوج بعين.. لا شي يفوتني"]
+NO_SETUP_MSGS = ["ما لقيت سيتاب يستاهل الحين.", "ديري عمرك بشغلة ثانية وأنا أراقب لك", "السوق هادي الحين ما في فرصة تستاهل روحي اتقهوي وأنا هنا", "فحصت كل شيء ما في سيتاب بشروطنا الحين. الصبر مفتاح، والفرص تجي"]
+DAILY_TIPS = ["ما في صفقة تستاهل تخليك تكسري خطتك.. الخطة هي الملك", "السوينق يحتاج صبر. الصفقة الصح تجيك، ما تروحين إليها", "الخسارة جزء من التداول. المهم إدارة المخاطرة مو الربح السريع"]
 
-# --- 5. وظائف التحليل (SMC Logic) ---
+# --- الدوال الفنية (نفس منطق ICT/SMC الخاص بك) ---
 def check_news():
     try:
         r = requests.get("https://nfs.faireconomy.media/ff_calendar_thisweek.json", timeout=10)
@@ -67,58 +65,39 @@ def check_news():
         now = datetime.utcnow()
         upcoming = []
         for ev in r.json():
-            if ev.get("impact") == "High":
-                t = datetime.fromisoformat(ev.get("date").replace("Z", ""))
-                if timedelta(hours=-1) <= (t - now) <= timedelta(hours=24):
-                    upcoming.append({"title": ev.get("title"), "currency": ev.get("country"), "hours": round((t-now).total_seconds()/3600, 1)})
-        return {"has_news": len(upcoming) > 0, "events": upcoming[:3]}
+            if ev.get("impact") != "High": continue
+            t = datetime.fromisoformat(ev.get("date","").replace("Z",""))
+            diff = t - now
+            if timedelta(hours=-1) <= diff <= timedelta(hours=24):
+                upcoming.append({"title": ev.get("title"), "currency": ev.get("country"), "hours": round(diff.total_seconds()/3600, 1)})
+        return {"has_news": len(upcoming)>0, "events": upcoming[:3]}
     except: return {"has_news": False, "events": []}
 
-def get_candles(yf_sym, tf):
+def get_candles(yf_sym, tf, limit=100):
     try:
-        df = yf.Ticker(yf_sym).history(period="60d", interval=tf)
-        df = df.rename(columns={'Open':'open','High':'high','Low':'low','Close':'close'})
-        return df
+        period = {"1h":"7d", "4h":"60d"}.get(tf, "60d")
+        df = yf.Ticker(yf_sym).history(period=period, interval=tf)
+        df = df.rename(columns={'Open':'open', 'High':'high', 'Low':'low', 'Close':'close'})
+        return df.tail(limit)
     except: return pd.DataFrame()
 
-# (هنا يتم دمج دوال التحليل الفني اللي عندك مثل detect_trend و find_ob ...)
-# للتبسيط، وضعت دالة تحليل مختصرة تعمل مع هيكلك الأساسي
-def analyze_market(sym_name, yf_sym, tf):
-    df = get_candles(yf_sym, tf)
-    if df.empty: return None
-    # محاكاة بسيطة للمنطق - هنا تضيفين دوال SMC الخاصة بكِ
-    quality = random.randint(50, 95) 
-    if quality > 75:
-        return {'symbol': sym_name, 'tf': tf, 'quality': quality, 'trend': 'bullish', 'current': df['close'].iloc[-1]}
-    return None
+def detect_trend(df):
+    if len(df) < 20: return "neutral"
+    r = df.tail(20)
+    if r['high'].iloc[-1] > r['high'].iloc[0] and r['low'].iloc[-1] > r['low'].iloc[0]: return "bullish"
+    if r['high'].iloc[-1] < r['high'].iloc[0] and r['low'].iloc[-1] < r['low'].iloc[0]: return "bearish"
+    return "neutral"
 
-# --- 6. رسائل التليجرام ---
-def setup_msg(a):
-    return f"""
-🟡 سيتاب جديد: {a['symbol']}
-⏰ الفريم: {a['tf']}
-📊 الجودة: {a['quality']}/100
-💰 السعر الحالي: {a['current']:.2f}
-📍 ركزي يا شذى، القرار لك!
-    """
+def find_swings(df, lb=3):
+    highs, lows = [], []
+    for i in range(lb, len(df)-lb):
+        if df['high'].iloc[i] == df['high'].iloc[i-lb:i+lb+1].max(): highs.append((i, df['high'].iloc[i]))
+        if df['low'].iloc[i] == df['low'].iloc[i-lb:i+lb+1].min(): lows.append((i, df['low'].iloc[i]))
+    return highs, lows
 
-# --- 7. الأوامر البرمجية ---
-async def start_cmd(update, context):
-    await update.message.reply_text("أهلاً شذى! بوت 'سكالبير الذهب' يعمل الآن على رندر 🚀")
-
-async def scan_cmd(update, context):
-    await update.message.reply_text(random.choice(WAITING_MSGS))
-    found = False
-    for name, yf_sym in SYMBOLS.items():
-        res = analyze_market(name, yf_sym, "1h")
-        if res:
-            await update.message.reply_text(setup_msg(res))
-            found = True
-    if not found:
-        await update.message.reply_text(random.choice(NO_SETUP_MSGS))
-
-# --- 8. المحرك الرئيسي ---
-async def trading_loop(app):
-    while True:
-        # فحص تلقائي كل ساعة
-        logger.
+def detect_dbos(df, highs, lows, direction):
+    if direction == "bullish" and len(highs) >= 2:
+        for i in range(len(highs)-1, 0, -1):
+            if highs[i][1] > highs[i-1][1]:
+                for j in range(highs[i-1][0], len(df)):
+                    if df['close'].
