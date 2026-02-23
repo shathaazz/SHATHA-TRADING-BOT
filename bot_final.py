@@ -9,10 +9,10 @@ def home(): return "Bot is Live!"
 def run(): app_flask.run(host='0.0.0.0', port=8080)
 def keep_alive(): Thread(target=run).start()
 
-Shetradingg, [07/09/47 12:59 ص]
+
 keep_alive() # هذا السطر يخلي البوت يفتح البوابة لرندر
 
-Shetradingg, [07/09/47 01:06 ص]
+
 import asyncio
 import os
 import logging
