@@ -1,4 +1,4 @@
-Shetradingg, [07/09/47 12:59 ص]
+
 from flask import Flask
 from threading import Thread
 
